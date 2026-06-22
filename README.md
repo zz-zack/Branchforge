@@ -92,7 +92,7 @@ flowchart TB
 | Milestone | Status |
 |---|---|
 | M1 Single-workspace runtime | Proven |
-| M2 Verification loop (code-test-fix) | In progress |
+| M2 Verification loop (code-test-fix) | Proven |
 | M3 Multi-workspace + cost/rate governance | Planned |
 | M4 Contracts + integration self-heal | Planned |
 | M5 UI shell (canvas, deferred) | Planned |
