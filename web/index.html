@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BranchForge - how to use</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --border:#334155; --fg:#e2e8f0; --mut:#94a3b8; --acc:#7c3aed; --ok:#4ade80; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:system-ui,-apple-system,"PingFang SC",sans-serif; line-height:1.6; }
+  .wrap { max-width:880px; margin:0 auto; padding:48px 24px 80px; }
+  h1 { font-size:40px; margin:0 0 6px; letter-spacing:-0.5px; }
+  .tag { color:var(--mut); font-size:17px; margin:0 0 4px; }
+  .slogan { color:var(--acc); font-weight:600; }
+  .lead { color:var(--mut); font-size:15px; max-width:620px; }
+  h2 { font-size:22px; margin:48px 0 14px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:640px){ .grid { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px; }
+  .card h3 { margin:0 0 4px; font-size:17px; }
+  .card .sub { color:var(--mut); font-size:13px; margin:0 0 12px; }
+  .flow { color:var(--mut); font-size:13px; font-family:ui-monospace,Menlo,monospace; line-height:1.7; }
+  .flow b { color:var(--fg); }
+  pre { background:#0b1220; border:1px solid var(--border); border-radius:10px; padding:14px 16px; overflow:auto; font-size:13px; font-family:ui-monospace,Menlo,monospace; position:relative; }
+  .copy { position:absolute; top:8px; right:8px; background:var(--acc); color:#fff; border:none; border-radius:6px; padding:3px 10px; font-size:11px; cursor:pointer; }
+  .step { display:flex; gap:12px; margin:10px 0; }
+  .num { flex:0 0 26px; height:26px; border-radius:50%; background:var(--acc); color:#fff; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td,th { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); }
+  .ok { color:var(--ok); font-weight:600; }
+  a { color:#a78bfa; }
+  .foot { color:var(--mut); font-size:13px; margin-top:48px; border-top:1px solid var(--border); padding-top:18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>BranchForge</h1>
+  <p class="tag"><span class="slogan">Run AI engineering teams in parallel branches.</span></p>
+  <p class="lead">A Git-native Agentic Harness - Claude agents work like a whole engineering team, in parallel, across isolated git worktrees; integrate locally; ship one clean result. <b>To the outside it looks like one developer; inside, it is a team.</b></p>
+
+  <h2>Two ways to use it</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>forge run <span class="sub">- variants</span></h3>
+      <p class="sub">Run one task as N governed, test-verified parallel variants. Pick the best.</p>
+      <div class="flow">
+        task<br>
+        -&gt; N isolated <b>worktrees</b> (parallel)<br>
+        -&gt; each: <b>code -&gt; test -&gt; fix</b> loop<br>
+        -&gt; budget + kill-switch<br>
+        -&gt; compare, you merge one
+      </div>
+    </div>
+    <div class="card">
+      <h3>forge team <span class="sub">- contract</span></h3>
+      <p class="sub">Decompose a goal into contract-bound parts, build in parallel, integrate and self-heal.</p>
+      <div class="flow">
+        goal + <b>contract test</b><br>
+        -&gt; Lead splits into parts<br>
+        -&gt; parts built in <b>parallel</b><br>
+        -&gt; merge, <b>contract test</b> gate<br>
+        -&gt; self-heal, one clean result
+      </div>
+    </div>
+  </div>
+
+  <h2>Quickstart</h2>
+  <div class="step"><div class="num">1</div><div>Make sure <code>claude</code> is logged in (or set <code>ANTHROPIC_API_KEY</code>), then install the one runtime dep:</div></div>
+  <pre><button class="copy" onclick="cp(this)">copy</button>npm i @anthropic-ai/claude-agent-sdk</pre>
+
+  <div class="step"><div class="num">2</div><div><b>Variants</b> - run a task as 2 test-verified parallel variants under a budget:</div></div>
+  <pre><button class="copy" onclick="cp(this)">copy</button>node forge.mjs &lt;repo&gt; "&lt;task&gt;" --variants 2 --budget 0.5</pre>
+
+  <div class="step"><div class="num">3</div><div><b>Team</b> - decompose a goal into contract-bound parts, integrate and self-heal (repo needs a <code>contract.test.js</code>):</div></div>
+  <pre><button class="copy" onclick="cp(this)">copy</button>node forge-team.mjs &lt;repo&gt; "&lt;goal&gt;" --budget 0.8</pre>
+
+  <h2>Proven (all on real Claude sessions)</h2>
+  <table>
+    <tr><th>Milestone</th><th>What it proves</th><th>Status</th></tr>
+    <tr><td>M1 Single-workspace runtime</td><td>worktree isolation, SDK, real edits, diff</td><td class="ok">Proven</td></tr>
+    <tr><td>M2 Verification loop</td><td>"done" decided by tests, not the agent</td><td class="ok">Proven</td></tr>
+    <tr><td>M3 Multi-workspace + governance</td><td>parallel + concurrency cap + budget + kill-switch</td><td class="ok">Proven</td></tr>
+    <tr><td>M4 Contracts + integration self-heal</td><td>contract test catches semantic compatibility</td><td class="ok">Proven</td></tr>
+  </table>
+
+  <div class="foot">
+    Repo: <a href="https://github.com/zz-zack/Branchforge">github.com/zz-zack/Branchforge</a> &middot;
+    Docs: <a href="../docs/REQUIREMENTS.md">Requirements</a> &middot; <a href="../docs/ROADMAP.md">Roadmap</a> &middot; <a href="../docs/CONTRACT_LAYER.md">Contract Layer</a> &middot; <a href="../docs/VERIFICATION_LOOP.md">Verification Loop</a><br>
+    <em>AI doesn't need another IDE. AI needs a software engineering system.</em>
+  </div>
+
+</div>
+<script>
+function cp(btn){
+  var pre = btn.parentNode;
+  var txt = pre.innerText.replace(/^copy/, '').trim();
+  if (navigator.clipboard) navigator.clipboard.writeText(txt);
+  btn.textContent = 'copied';
+  setTimeout(function(){ btn.textContent = 'copy'; }, 1200);
+}
+</script>
+</body>
+</html>
