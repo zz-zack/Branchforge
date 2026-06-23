@@ -101,6 +101,20 @@ flowchart TB
 
 ---
 
+## Quickstart
+
+```bash
+# install the one runtime dependency
+npm i @anthropic-ai/claude-agent-sdk
+
+# run a task as N governed, test-verified parallel variants
+node forge.mjs <repo> "<task>" --variants 2 --budget 0.5
+```
+
+One command composes the proven mechanisms: isolated worktrees (M1) · parallel with a concurrency cap + budget + kill-switch (M3) · a per-variant verification loop, code→test→fix (M2). It prints a comparison (gate / attempts / cost); you pick a branch to merge.
+
+---
+
 ## Docs
 
 | Doc | Content |
