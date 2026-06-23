@@ -94,7 +94,7 @@ flowchart TB
 | M1 Single-workspace runtime | Proven |
 | M2 Verification loop (code-test-fix) | Proven |
 | M3 Multi-workspace + cost/rate governance | Proven |
-| M4 Contracts + integration self-heal | Planned |
+| M4 Contracts + integration self-heal | Proven |
 | M5 UI shell (canvas, deferred) | Planned |
 
 > Frontend strategy: **the CLI is the lightweight frontend for the diffusion phase**; the Electron canvas is deferred — core logic first.
