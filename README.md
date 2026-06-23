@@ -107,8 +107,11 @@ flowchart TB
 # install the one runtime dependency
 npm i @anthropic-ai/claude-agent-sdk
 
-# run a task as N governed, test-verified parallel variants
+# run a task as N governed, test-verified parallel variants (M1+M2+M3)
 node forge.mjs <repo> "<task>" --variants 2 --budget 0.5
+
+# OR: decompose a goal into contract-bound parts, build in parallel, integrate & self-heal (M4)
+node forge-team.mjs <repo> "<goal>" --budget 0.8   # repo needs a contract.test.js
 ```
 
 One command composes the proven mechanisms: isolated worktrees (M1) · parallel with a concurrency cap + budget + kill-switch (M3) · a per-variant verification loop, code→test→fix (M2). It prints a comparison (gate / attempts / cost); you pick a branch to merge.
