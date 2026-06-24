@@ -6,7 +6,7 @@
 import http from 'node:http'
 import { URL } from 'node:url'
 import { execFileSync } from 'node:child_process'
-import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { query } from '@anthropic-ai/claude-agent-sdk'
@@ -82,6 +82,51 @@ async function chat(s, msg, emit) {
   emit({ type: 'turn-done', files: diffFiles(s), gate: gateOf(s.worktree), cost: s.cost })
 }
 
+async function runAgentText(prompt, cwd) {
+  let text = '', cost = 0
+  const res = query({ prompt, options: { cwd, permissionMode: 'bypassPermissions' } })
+  for await (const m of res) {
+    if (m.type === 'assistant') { for (const b of m.message.content) if (b.type === 'text') text += b.text }
+    else if (m.type === 'result') cost = m.total_cost_usd || 0
+  }
+  return { text, cost }
+}
+
+// Lead:评估目标 -> 决定单工作区还是拆成并行 parts(只产出 JSON 计划,不改 repo)
+async function leadPlan(repo, goal) {
+  resolveRepo(repo)
+  const tmp = mkdtempSync(join(homedir(), '.forge-lead-'))
+  const prompt = 'You are a tech lead. Goal: ' + goal + '\n\n' +
+    'Decide if this needs ONE workspace or should split into INDEPENDENT parallel parts (isolated agents, disjoint files). ' +
+    'Prefer ONE unless the goal clearly has separable pieces buildable in parallel. ' +
+    'Output ONLY JSON: {"mode":"single"|"parallel","reason":"short","parts":[{"id":"a","title":"short","task":"what to do"}]}'
+  const r = await runAgentText(prompt, tmp)
+  let plan
+  try { plan = JSON.parse(r.text.match(/\{[\s\S]*\}/)[0]) } catch (e) { plan = { mode: 'single', reason: 'fallback', parts: [{ id: 'a', title: goal.slice(0, 30), task: goal }] } }
+  plan.cost = r.cost || 0
+  return plan
+}
+
+// 批准后:为每个 part 自动建会话(worktree)并并行跑,带预算 kill-switch
+async function orchestrate(repo, plan, budget, emit) {
+  let spent = plan.cost || 0
+  const abort = new AbortController()
+  async function runPart(p) {
+    if (abort.signal.aborted) { emit({ type: 'part-done', id: p.id, skipped: true }); return }
+    const s = createSession(repo, p.title)
+    emit({ type: 'session-created', id: s.id, title: s.title, branch: s.branch })
+    await chat(s, p.task, (e) => { if (e.type === 'turn-done') emit({ type: 'part-done', id: p.id, sid: s.id, files: e.files, gate: e.gate, cost: e.cost }) })
+    spent += s.cost
+    if (spent > budget && !abort.signal.aborted) { emit({ type: 'kill' }); abort.abort() }
+  }
+  const cap = Math.min(3, plan.parts.length)
+  let i = 0
+  await Promise.all(Array.from({ length: Math.min(cap, plan.parts.length) }, async () => {
+    while (i < plan.parts.length) { const idx = i++; await runPart(plan.parts[idx]) }
+  }))
+  emit({ type: 'orchestrate-done', spent })
+}
+
 const HTML = `<!doctype html><html lang="zh"><head><meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/><title>BranchForge Chat</title>
 <style>
@@ -113,6 +158,8 @@ button:disabled{opacity:.5}
   <h1>BranchForge</h1><p class="sub">多会话对话工作台</p>
   <input id="repo" placeholder="项目根目录(git 仓库)"/>
   <button onclick="newSession()">+ 新会话</button>
+  <input id="goal" placeholder="大目标(Lead 自动编排)" style="margin-top:6px"/>
+  <button onclick="planGoal()">规划并运行</button>
   <div class="slist" id="slist"></div>
 </div>
 <div class="main">
@@ -177,6 +224,36 @@ function send(){
   };
   es.onerror=function(){es.close();streaming=false;document.getElementById('sendb').disabled=false;};
 }
+function planGoal(){
+  var repo=document.getElementById('repo').value, goal=document.getElementById('goal').value;
+  if(!repo||!goal)return;
+  var c=document.getElementById('chat');c.innerHTML='<div class="empty">Lead 规划中…</div>';
+  fetch('/plan?repo='+encodeURIComponent(repo)+'&goal='+encodeURIComponent(goal)).then(function(r){return r.json()}).then(function(p){showPlan(repo,p)}).catch(function(){c.innerHTML='<div class="empty">规划失败</div>'});
+}
+function showPlan(repo,p){
+  var c=document.getElementById('chat');c.innerHTML='';
+  var box=document.createElement('div');box.className='msg a';
+  var t='Lead 计划('+p.mode+'): '+(p.reason||'')+'\\n\\n';
+  (p.parts||[]).forEach(function(pt){t+='. ['+pt.id+'] '+pt.title+' — '+pt.task+'\\n'});
+  box.textContent=t;c.appendChild(box);
+  var btn=document.createElement('button');btn.style.margin='4px 0';btn.textContent='批准并并行运行 '+(p.parts||[]).length+' 个工作区';
+  btn.onclick=function(){runPlan(repo,p)};c.appendChild(btn);
+}
+function runPlan(repo,p){
+  var c=document.getElementById('chat');c.innerHTML='';
+  var log=document.createElement('div');log.className='msg a';log.textContent='编排中…\\n';c.appendChild(log);
+  var es=new EventSource('/orchestrate?repo='+encodeURIComponent(repo)+'&budget=1.5&plan='+encodeURIComponent(JSON.stringify(p)));
+  es.onmessage=function(ev){
+    var e=JSON.parse(ev.data);
+    if(e.type==='session-created'){log.textContent+='+ 工作区 '+e.title+' ('+e.branch+')\\n';loadSessions();}
+    else if(e.type==='part-done'){log.textContent+='. part '+e.id+(e.skipped?' skipped':(' done — +'+e.files+' files'+(e.gate?(' . gate '+e.gate):'')+' . $'+(e.cost||0).toFixed(3)))+'\\n';loadSessions();}
+    else if(e.type==='kill'){log.textContent+='!! 预算超限,kill-switch\\n';}
+    else if(e.type==='orchestrate-done'){log.textContent+='\\n编排完成,总成本 $'+(e.spent||0).toFixed(3)+'。点左侧会话看详情、继续对话。';es.close();loadSessions();}
+    else if(e.type==='error'){log.textContent+='[error] '+e.message;es.close();}
+    c.scrollTop=c.scrollHeight;
+  };
+  es.onerror=function(){es.close()};
+}
 loadSessions();
 </script></body></html>`;
 
@@ -202,6 +279,18 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
     const emit = (e) => res.write('data: ' + JSON.stringify(e) + '\n\n')
     await chat(s, u.searchParams.get('msg') || '', emit)
+    emit({ type: 'done' }); res.end(); return
+  }
+  if (u.pathname === '/plan') {
+    try { const p = await leadPlan(u.searchParams.get('repo'), u.searchParams.get('goal')); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(p)) }
+    catch (e) { res.writeHead(400); res.end(String(e)) }
+    return
+  }
+  if (u.pathname === '/orchestrate') {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
+    const emit = (e) => res.write('data: ' + JSON.stringify(e) + '\n\n')
+    try { await orchestrate(u.searchParams.get('repo'), JSON.parse(u.searchParams.get('plan')), Number(u.searchParams.get('budget') || 1.0), emit) }
+    catch (e) { emit({ type: 'error', message: String(e) }) }
     emit({ type: 'done' }); res.end(); return
   }
   res.writeHead(404); res.end('not found')
