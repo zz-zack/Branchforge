@@ -1,0 +1,190 @@
+// chat-server.mjs — BranchForge 多会话对话工作台。
+// 每个 session = 一个 git worktree + 一段可恢复(resume)的 Claude Code 对话。
+// 多会话管理 + 多轮对话 + 每会话 diff/闸门,落盘持久化。零 Electron。
+// 用法(从能解析 @anthropic-ai/claude-agent-sdk 的目录跑): node chat-server.mjs  开 http://localhost:8788
+
+import http from 'node:http'
+import { URL } from 'node:url'
+import { execFileSync } from 'node:child_process'
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { query } from '@anthropic-ai/claude-agent-sdk'
+
+const PORT = Number(process.env.PORT || 8788)
+const STORE = join(process.cwd(), '.forge-sessions.json')
+const git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim()
+
+let sessions = {}
+try { if (existsSync(STORE)) sessions = JSON.parse(readFileSync(STORE, 'utf8')) } catch (e) {}
+function save() { try { writeFileSync(STORE, JSON.stringify(sessions)) } catch (e) {} }
+function id() { return Math.random().toString(36).slice(2, 8) }
+
+function createSession(repo, title) {
+  const sid = id()
+  const base = git(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  const branch = 'forge/s-' + sid
+  const wt = join(repo, '.forge', 'wt-' + sid)
+  try { git(repo, ['worktree', 'remove', '--force', wt]) } catch (e) {}
+  try { git(repo, ['branch', '-D', branch]) } catch (e) {}
+  try { git(repo, ['worktree', 'add', '-b', branch, wt, base]) } catch (e) {}
+  sessions[sid] = { id: sid, title: title || ('session ' + sid), repo, base, branch, worktree: wt, sdk: null, history: [], cost: 0 }
+  save()
+  return sessions[sid]
+}
+
+function gateOf(cwd) {
+  let files = []
+  try { files = readdirSync(cwd) } catch (e) { return null }
+  if (!files.some((f) => /\.test\.(c|m)?js$/.test(f))) return null
+  try { execFileSync('node', ['--test'], { cwd, encoding: 'utf8', stdio: 'pipe' }); return 'PASS' } catch (e) { return 'FAIL' }
+}
+function diffFiles(s) {
+  try { git(s.worktree, ['add', '-A']); const st = git(s.worktree, ['diff', '--cached', '--numstat', s.base]); return st ? st.split('\n').filter(Boolean).length : 0 } catch (e) { return 0 }
+}
+
+async function chat(s, msg, emit) {
+  s.history.push({ role: 'user', text: msg })
+  const opts = { cwd: s.worktree, permissionMode: 'bypassPermissions' }
+  if (s.sdk) opts.resume = s.sdk
+  let assistant = ''
+  try {
+    const res = query({ prompt: msg, options: opts })
+    for await (const m of res) {
+      if (m.type === 'assistant') {
+        for (const b of m.message.content) {
+          if (b.type === 'text') { assistant += b.text; emit({ type: 'chunk', text: b.text }) }
+          else if (b.type === 'tool_use') emit({ type: 'tool', name: b.name })
+        }
+      } else if (m.type === 'result') { s.sdk = m.session_id; s.cost += m.total_cost_usd || 0 }
+    }
+  } catch (e) { emit({ type: 'error', message: String(e) }) }
+  s.history.push({ role: 'assistant', text: assistant })
+  save()
+  emit({ type: 'turn-done', files: diffFiles(s), gate: gateOf(s.worktree), cost: s.cost })
+}
+
+const HTML = `<!doctype html><html lang="zh"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/><title>BranchForge Chat</title>
+<style>
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:#0f172a;color:#e2e8f0;font-family:system-ui,"PingFang SC",sans-serif;display:flex}
+.side{width:264px;border-right:1px solid #334155;display:flex;flex-direction:column;padding:14px;gap:8px}
+.side h1{font-size:18px;margin:0 0 2px}.side .sub{color:#94a3b8;font-size:12px;margin:0 0 8px}
+input,textarea{padding:8px 10px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:13px;font-family:inherit}
+input:focus,textarea:focus{outline:none;border-color:#7c3aed}
+button{padding:8px 12px;border-radius:6px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:13px}
+button:disabled{opacity:.5}
+.slist{flex:1;overflow:auto;display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.sitem{padding:8px 10px;border-radius:6px;border:1px solid #334155;background:#1e293b;cursor:pointer;font-size:13px}
+.sitem.on{border-color:#7c3aed;background:#241b4d}
+.sitem .b{font-family:ui-monospace,monospace;font-size:11px;color:#94a3b8}
+.main{flex:1;display:flex;flex-direction:column}
+.bar{padding:10px 16px;border-bottom:1px solid #334155;font-size:13px;color:#94a3b8;display:flex;gap:14px;align-items:center}
+.badge{padding:2px 9px;border-radius:999px;font-size:12px}
+.b-pass{background:#14532d}.b-fail{background:#7f1d1d}
+.chat{flex:1;overflow:auto;padding:18px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:78%;padding:10px 12px;border-radius:10px;white-space:pre-wrap;font-size:14px;line-height:1.55}
+.u{align-self:flex-end;background:#4c1d95}
+.a{align-self:flex-start;background:#1e293b;border:1px solid #334155;font-family:ui-monospace,Menlo,monospace;font-size:13px}
+.foot{padding:12px 16px;border-top:1px solid #334155;display:flex;gap:8px}
+.foot textarea{flex:1;resize:none;height:44px}
+.empty{color:#64748b;margin:auto;font-size:14px}
+</style></head><body>
+<div class="side">
+  <h1>BranchForge</h1><p class="sub">多会话对话工作台</p>
+  <input id="repo" placeholder="项目根目录(git 仓库)"/>
+  <button onclick="newSession()">+ 新会话</button>
+  <div class="slist" id="slist"></div>
+</div>
+<div class="main">
+  <div class="bar" id="bar"><span>选择或新建一个会话</span></div>
+  <div class="chat" id="chat"><div class="empty">每个会话 = 一个隔离 worktree + 一段可恢复的对话</div></div>
+  <div class="foot">
+    <textarea id="msg" placeholder="跟这个会话说点什么…(Enter 发送)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
+    <button id="sendb" onclick="send()">发送</button>
+  </div>
+</div>
+<script>
+var cur=null, streaming=false;
+function api(p){return fetch(p).then(function(r){return r.json()})}
+function loadSessions(){
+  api('/sessions').then(function(list){
+    var el=document.getElementById('slist');el.innerHTML='';
+    list.forEach(function(s){
+      var d=document.createElement('div');d.className='sitem'+(cur===s.id?' on':'');
+      d.innerHTML='<div>'+s.title+'</div><div class="b">'+s.branch+' . '+s.turns+' turns . $'+(s.cost||0).toFixed(3)+'</div>';
+      d.onclick=function(){selectSession(s)};el.appendChild(d);
+    });
+  });
+}
+function newSession(){
+  var repo=document.getElementById('repo').value;if(!repo)return;
+  fetch('/session/new?repo='+encodeURIComponent(repo)+'&title='+encodeURIComponent('session')).then(function(r){return r.json()}).then(function(s){
+    cur=s.id;loadSessions();selectSession(s);
+  });
+}
+function selectSession(s){
+  cur=s.id;loadSessions();
+  document.getElementById('bar').innerHTML='<span style="font-family:ui-monospace">'+s.branch+'</span><span id="diff"></span><span id="gate"></span>';
+  api('/session/history?id='+s.id).then(function(h){
+    var c=document.getElementById('chat');c.innerHTML='';
+    h.forEach(function(m){addMsg(m.role,m.text)});
+    if(!h.length)c.innerHTML='<div class="empty">开始对话吧</div>';
+  });
+}
+function addMsg(role,text){
+  var c=document.getElementById('chat');
+  if(c.querySelector('.empty'))c.innerHTML='';
+  var d=document.createElement('div');d.className='msg '+(role==='user'?'u':'a');d.textContent=text;c.appendChild(d);
+  c.scrollTop=c.scrollHeight;return d;
+}
+function send(){
+  if(!cur||streaming)return;
+  var ta=document.getElementById('msg');var msg=ta.value.trim();if(!msg)return;ta.value='';
+  addMsg('user',msg);streaming=true;document.getElementById('sendb').disabled=true;
+  var bubble=addMsg('assistant','');var acc='';
+  var es=new EventSource('/chat?session='+cur+'&msg='+encodeURIComponent(msg));
+  es.onmessage=function(ev){
+    var e=JSON.parse(ev.data);
+    if(e.type==='chunk'){acc+=e.text;bubble.textContent=acc;}
+    else if(e.type==='tool'){acc+='\\n[tool] '+e.name+'\\n';bubble.textContent=acc;}
+    else if(e.type==='turn-done'){
+      var diff=document.getElementById('diff');if(diff)diff.textContent='+'+e.files+' files';
+      var gate=document.getElementById('gate');if(gate&&e.gate)gate.innerHTML='<span class="badge '+(e.gate==='PASS'?'b-pass':'b-fail')+'">'+e.gate+'</span>';
+    }
+    else if(e.type==='error'){acc+='\\n[error] '+e.message;bubble.textContent=acc;}
+    else if(e.type==='done'){es.close();streaming=false;document.getElementById('sendb').disabled=false;loadSessions();}
+    document.getElementById('chat').scrollTop=document.getElementById('chat').scrollHeight;
+  };
+  es.onerror=function(){es.close();streaming=false;document.getElementById('sendb').disabled=false;};
+}
+loadSessions();
+</script></body></html>`;
+
+const server = http.createServer(async (req, res) => {
+  const u = new URL(req.url, 'http://localhost')
+  if (u.pathname === '/') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(HTML); return }
+  if (u.pathname === '/sessions') {
+    const list = Object.values(sessions).map((s) => ({ id: s.id, title: s.title, repo: s.repo, branch: s.branch, cost: s.cost, turns: s.history.length }))
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(list)); return
+  }
+  if (u.pathname === '/session/new') {
+    try { const s = createSession(u.searchParams.get('repo'), u.searchParams.get('title')); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(s)) }
+    catch (e) { res.writeHead(400); res.end(String(e)) }
+    return
+  }
+  if (u.pathname === '/session/history') {
+    const s = sessions[u.searchParams.get('id')]
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(s ? s.history : [])); return
+  }
+  if (u.pathname === '/chat') {
+    const s = sessions[u.searchParams.get('session')]
+    if (!s) { res.writeHead(404); res.end('no session'); return }
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
+    const emit = (e) => res.write('data: ' + JSON.stringify(e) + '\n\n')
+    await chat(s, u.searchParams.get('msg') || '', emit)
+    emit({ type: 'done' }); res.end(); return
+  }
+  res.writeHead(404); res.end('not found')
+})
+server.listen(PORT, () => console.log('BranchForge chat -> http://localhost:' + PORT))
