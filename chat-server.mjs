@@ -6,8 +6,9 @@
 import http from 'node:http'
 import { URL } from 'node:url'
 import { execFileSync } from 'node:child_process'
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { homedir } from 'node:os'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 
 const PORT = Number(process.env.PORT || 8788)
@@ -19,7 +20,25 @@ try { if (existsSync(STORE)) sessions = JSON.parse(readFileSync(STORE, 'utf8')) 
 function save() { try { writeFileSync(STORE, JSON.stringify(sessions)) } catch (e) {} }
 function id() { return Math.random().toString(36).slice(2, 8) }
 
-function createSession(repo, title) {
+function resolveRepo(repo) {
+  if (!repo) throw new Error('请填项目路径或仓库 URL')
+  if (/^(https?:|git@)/.test(repo)) {
+    const name = repo.replace(/\.git$/, '').split(/[\/:]/).pop()
+    const dir = join(homedir(), '.forge-repos', name)
+    if (!existsSync(dir)) {
+      mkdirSync(join(homedir(), '.forge-repos'), { recursive: true })
+      execFileSync('git', ['clone', repo, dir], { encoding: 'utf8' })
+    }
+    return dir
+  }
+  try { git(repo, ['rev-parse', '--is-inside-work-tree']) } catch (e) {
+    throw new Error('不是本地 git 仓库: ' + repo + ' (请填磁盘上的 git 项目路径,或一个仓库 URL)')
+  }
+  return repo
+}
+
+function createSession(repoIn, title) {
+  const repo = resolveRepo(repoIn)
   const sid = id()
   const base = git(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])
   const branch = 'forge/s-' + sid
