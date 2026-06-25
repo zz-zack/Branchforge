@@ -19,6 +19,7 @@ let sessions = {}
 try { if (existsSync(STORE)) sessions = JSON.parse(readFileSync(STORE, 'utf8')) } catch (e) {}
 function save() { try { writeFileSync(STORE, JSON.stringify(sessions)) } catch (e) {} }
 function id() { return Math.random().toString(36).slice(2, 8) }
+const aborters = {}
 
 function resolveRepo(repo) {
   if (!repo) throw new Error('请填项目路径或仓库 URL')
@@ -63,7 +64,8 @@ function diffFiles(s) {
 
 async function chat(s, msg, emit) {
   s.history.push({ role: 'user', text: msg })
-  const opts = { cwd: s.worktree, permissionMode: 'bypassPermissions' }
+  const ac = new AbortController(); aborters[s.id] = ac
+  const opts = { cwd: s.worktree, permissionMode: 'bypassPermissions', abortController: ac }
   if (s.sdk) opts.resume = s.sdk
   let assistant = ''
   try {
@@ -77,6 +79,7 @@ async function chat(s, msg, emit) {
       } else if (m.type === 'result') { s.sdk = m.session_id; s.cost += m.total_cost_usd || 0 }
     }
   } catch (e) { emit({ type: 'error', message: String(e) }) }
+  delete aborters[s.id]
   s.history.push({ role: 'assistant', text: assistant })
   save()
   emit({ type: 'turn-done', files: diffFiles(s), gate: gateOf(s.worktree), cost: s.cost })
@@ -167,7 +170,7 @@ button:disabled{opacity:.5}
   <div class="chat" id="chat"><div class="empty">每个会话 = 一个隔离 worktree + 一段可恢复的对话</div></div>
   <div class="foot">
     <textarea id="msg" placeholder="跟这个会话说点什么…(Enter 发送)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
-    <button id="sendb" onclick="send()">发送</button>
+    <button id="sendb" onclick="send()">发送</button><button onclick="stop()" style="margin-left:6px;background:#7f1d1d">停止</button>
   </div>
 </div>
 <script>
@@ -191,7 +194,7 @@ function newSession(){
 }
 function selectSession(s){
   cur=s.id;loadSessions();
-  document.getElementById('bar').innerHTML='<span style="font-family:ui-monospace">'+s.branch+'</span><span id="diff"></span><span id="gate"></span>';
+  document.getElementById('bar').innerHTML='<span style="font-family:ui-monospace">'+s.branch+'</span><span id="diff"></span><span id="gate"></span><button onclick="mergeSession()" style="margin-left:auto;padding:4px 12px">合并到主干</button><span id="mergeres" style="margin-left:8px"></span>';
   api('/session/history?id='+s.id).then(function(h){
     var c=document.getElementById('chat');c.innerHTML='';
     h.forEach(function(m){addMsg(m.role,m.text)});
@@ -272,6 +275,24 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === '/session/history') {
     const s = sessions[u.searchParams.get('id')]
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(s ? s.history : [])); return
+  }
+  if (u.pathname === '/session/interrupt') {
+    const ac = aborters[u.searchParams.get('id')]
+    if (ac) ac.abort()
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: !!ac })); return
+  }
+  if (u.pathname === '/session/merge') {
+    const s = sessions[u.searchParams.get('id')]
+    if (!s) { res.writeHead(404); res.end('no session'); return }
+    try {
+      try { git(s.worktree, ['add', '-A']); git(s.worktree, ['commit', '-q', '-m', 'forge session ' + s.id]) } catch (e) {}
+      git(s.repo, ['checkout', s.base])
+      const out = git(s.repo, ['merge', '--no-ff', '-m', 'merge ' + s.branch, s.branch])
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, out }))
+    } catch (e) {
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: String(e).slice(0, 300) }))
+    }
+    return
   }
   if (u.pathname === '/chat') {
     const s = sessions[u.searchParams.get('session')]
