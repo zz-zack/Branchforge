@@ -265,7 +265,17 @@ const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://localhost')
   if (u.pathname === '/') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-    try { res.end(readFileSync(join(process.cwd(), 'home.html'))) } catch (e) { res.end(HTML) }
+    try { res.end(readFileSync(join(process.cwd(), 'ui', 'index.html'))) }
+    catch (e) { try { res.end(readFileSync(join(process.cwd(), 'home.html'))) } catch (e2) { res.end(HTML) } }
+    return
+  }
+  if (u.pathname.startsWith('/assets/')) {
+    try {
+      const data = readFileSync(join(process.cwd(), 'ui', u.pathname))
+      const ext = u.pathname.split('.').pop()
+      const ct = ext === 'js' ? 'text/javascript' : ext === 'css' ? 'text/css' : 'application/octet-stream'
+      res.writeHead(200, { 'Content-Type': ct }); res.end(data)
+    } catch (e) { res.writeHead(404); res.end('not found') }
     return
   }
   if (u.pathname === '/sessions') {
