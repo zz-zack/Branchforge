@@ -26,12 +26,10 @@
 <body>
   <div class="bar">
     <h1>BranchForge Office</h1>
-    <span class="sub">真·LPC 像素工程师 · 对外一个开发者,对内一个团队</span>
-    <button class="p" id="b1">+ 派 3 个任务</button>
-    <button id="b2">⌨️ 开工</button>
-    <button class="g" id="b3">🧪 跑测试(闸门)</button>
-    <button id="b4">📦 全部提交评审</button>
-    <button id="b5">↺ Reset</button>
+    <input id="repo" placeholder="项目路径 / 仓库URL" style="padding:7px 10px;border:1px solid #e4e7ee;border-radius:8px;font-size:13px;width:210px"/>
+    <input id="goal" placeholder="大目标(Lead 自动拆给工程师)" style="padding:7px 10px;border:1px solid #e4e7ee;border-radius:8px;font-size:13px;flex:1;min-width:160px"/>
+    <button class="p" id="run">规划并开工</button>
+    <span class="sub" id="status"></span>
   </div>
   <div class="load" id="load">加载像素资产…</div>
   <div class="tip" id="tip"></div>
@@ -93,7 +91,7 @@
       {t:'用户中心前端',log:'[tool] Glob src/**\n[tool] Edit UserPage.tsx\n[tool] Bash build\n构建成功 ok'},
       {t:'数据库 schema',log:'[tool] Write schema.sql\n[tool] Bash migrate\nmigration ok'}
     ]
-    let seq=0,merges=0,workers=[]
+    let seq=0,merges=0,workers=[];const bySid={}
     const tweens=[]
     function tween(dur,fn,done){tweens.push({t:0,dur,fn,done})}
 
@@ -156,7 +154,7 @@
         setTimeout(()=>{
           if(w.status==='pass'){
             bubble(LEAD[0],LEAD[1]-104,'✅ 合格,合并',0x2f9e63);leadReviewing=false
-            walkTo(w,boardX-30,REVIEW()[1],()=>{doMergeQueued(w);reviewing=false;relayout();processQueue()})
+            walkTo(w,boardX-30,REVIEW()[1],()=>{if(w.sid)fetch('/session/merge?id='+w.sid).catch(()=>{});doMergeQueued(w);reviewing=false;relayout();processQueue()})
           }else{
             bubble(LEAD[0],LEAD[1]-104,'↩︎ 不合格,返工',0xc2533a);leadReviewing=false;floatText(REVIEW()[0],REVIEW()[1]-72,'😓')
             walkTo(w,w.home[0],w.home[1],()=>{queue.shift();w._inreview=false;w.status='work';drawDesk(w.d,true);w.hit.eventMode='static';w.tag.visible=true;reviewing=false;relayout();processQueue()})
@@ -175,7 +173,7 @@
       fxL.addChild(card,ct,cb);floatText(boardX+40,cardY-4,'🎉')
       charsL.removeChild(w.c);desksL.removeChild(w.d,w.hit);fxL.removeChild(w.tag,w.chk,w.chkbg)
     }
-    function reset(){workers.slice().forEach(w=>{charsL.removeChild(w.c);desksL.removeChild(w.d,w.hit);fxL.removeChild(w.tag,w.chk,w.chkbg)});workers=[];merges=0;seq=0;boardCnt.text='已合并 0 次';fxL.children.filter(n=>n._card).forEach(n=>fxL.removeChild(n))}
+    function reset(){workers.slice().forEach(w=>{charsL.removeChild(w.c);desksL.removeChild(w.d,w.hit);fxL.removeChild(w.tag,w.chk,w.chkbg)});workers=[];queue.length=0;reviewing=false;Object.keys(bySid).forEach(k=>delete bySid[k]);merges=0;seq=0;boardCnt.text='已合并 0 次';fxL.children.filter(n=>n._card).forEach(n=>fxL.removeChild(n))}
 
     const tip=document.getElementById('tip'),ov=document.getElementById('ov')
     function showTip(w){tip.style.opacity=1;tip.innerHTML='<div style="font-weight:700">'+w.branch+'</div><div class="b">'+w.task+' · +'+w.files+' 文件 · '+(w.status==='pass'?'闸门 PASS':w.status==='fail'?'闸门 FAIL':w.status==='work'?'搬砖中':'待命')+'</div>'}
@@ -191,11 +189,45 @@
       leadC.y=LEAD[1]+(leadReviewing?Math.sin(t*7)*2:0)
     })
 
-    document.getElementById('b1').onclick=()=>spawn(3)
-    document.getElementById('b2').onclick=work
-    document.getElementById('b3').onclick=runTests
-    document.getElementById('b4').onclick=submitAll
-    document.getElementById('b5').onclick=reset
+    function spawnReal(sid,branch,title){
+      if(workers.length>=6)return
+      const p=slots()[workers.length]
+      const w={sid,branch:branch||('forge/'+String(sid).slice(0,6)),task:title||'task',log:'(运行中…)',files:0,status:'work',baseY:p[1],home:[p[0],p[1]]}
+      const c=makeChar(SK[seq%3],SH[seq%3],PA[seq%3],HA[seq%2]);seq++;c.position.set(p[0],p[1]);c.alpha=0;charsL.addChild(c)
+      const d=new PIXI.Graphics();d.position.set(p[0],p[1]);drawDesk(d,true);desksL.addChild(d)
+      const tag=new PIXI.Text(w.branch,{fontFamily:'ui-monospace',fontSize:10,fill:0x8b93a4});tag.anchor.set(0.5);tag.position.set(p[0],p[1]-86);fxL.addChild(tag)
+      const chkbg=new PIXI.Graphics();chkbg.position.set(p[0]+24,p[1]-78);chkbg.visible=false
+      const chk=new PIXI.Text('',{fontFamily:'system-ui',fontSize:14,fill:0xffffff,fontWeight:'700'});chk.anchor.set(0.5);chk.position.set(p[0]+24,p[1]-78);chk.visible=false
+      fxL.addChild(chkbg,chk)
+      const hit=new PIXI.Graphics().beginFill(0xffffff,0.001).drawRect(p[0]-40,p[1]-90,80,120).endFill();hit.eventMode='static';hit.cursor='pointer';desksL.addChild(hit)
+      hit.on('pointerover',()=>showTip(w));hit.on('globalpointermove',e=>moveTip(e));hit.on('pointerout',hideTip);hit.on('pointertap',()=>openPanel(w))
+      w.c=c;w.d=d;w.tag=tag;w.chk=chk;w.chkbg=chkbg;w.hit=hit;workers.push(w);bySid[sid]=w
+      tween(0.4,t=>{c.alpha=t;c.y=p[1]+(1-t)*8})
+    }
+    function onPartDone(sid,gate,files){
+      const w=bySid[sid];if(!w||w._inreview)return
+      w.files=files||0;w.status=(gate==='FAIL')?'fail':'pass';setBadge(w)
+      w._inreview=true;w.hit.eventMode='none';w.tag.visible=false;w.chk.visible=false;w.chkbg.visible=false;drawDesk(w.d,false)
+      const i=queue.length;queue.push(w);walkTo(w,LINE(i)[0],LINE(i)[1]);processQueue()
+    }
+    function run(){
+      const repo=document.getElementById('repo').value,goal=document.getElementById('goal').value
+      if(!repo||!goal)return
+      const st=document.getElementById('status');reset();st.textContent='Lead 规划中…'
+      fetch('/plan?repo='+encodeURIComponent(repo)+'&goal='+encodeURIComponent(goal)).then(r=>r.json()).then(plan=>{
+        if(plan.error){st.textContent='错误: '+plan.error;return}
+        const n=(plan.parts||[]).length;st.textContent='计划: '+plan.mode+' · '+n+' 个工位 · 开工中…'
+        const es=new EventSource('/orchestrate?repo='+encodeURIComponent(repo)+'&budget=1.5&plan='+encodeURIComponent(JSON.stringify(plan)))
+        es.onmessage=ev=>{const e=JSON.parse(ev.data)
+          if(e.type==='session-created')spawnReal(e.id,e.branch,e.title)
+          else if(e.type==='part-done'){if(!e.skipped)onPartDone(e.sid,e.gate,e.files)}
+          else if(e.type==='orchestrate-done')st.textContent='编排完成 · 总成本 $'+(e.spent||0).toFixed(3)
+          else if(e.type==='error')st.textContent='错误: '+e.message
+          else if(e.type==='done')es.close()}
+        es.onerror=()=>es.close()
+      }).catch(()=>{st.textContent='规划失败(检查项目路径/服务)'})
+    }
+    document.getElementById('run').onclick=run
   })()
   </script>
 </body></html>

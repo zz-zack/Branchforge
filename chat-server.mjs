@@ -13,6 +13,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk'
 
 const PORT = Number(process.env.PORT || 8788)
 const STORE = join(process.cwd(), '.forge-sessions.json')
+const OFFICE_DIR = join(process.cwd(), 'office')
 const git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim()
 
 let sessions = {}
@@ -313,6 +314,16 @@ const server = http.createServer(async (req, res) => {
     try { await orchestrate(u.searchParams.get('repo'), JSON.parse(u.searchParams.get('plan')), Number(u.searchParams.get('budget') || 1.0), emit) }
     catch (e) { emit({ type: 'error', message: String(e) }) }
     emit({ type: 'done' }); res.end(); return
+  }
+  if (u.pathname === '/office' || u.pathname.startsWith('/office/')) {
+    const rel = u.pathname === '/office' ? '/index.html' : u.pathname.slice(7)
+    try {
+      const data = readFileSync(join(OFFICE_DIR, rel))
+      const ext = rel.split('.').pop()
+      const ct = ext === 'html' ? 'text/html; charset=utf-8' : ext === 'js' ? 'text/javascript' : ext === 'png' ? 'image/png' : 'application/octet-stream'
+      res.writeHead(200, { 'Content-Type': ct }); res.end(data)
+    } catch (e) { res.writeHead(404); res.end('not found') }
+    return
   }
   res.writeHead(404); res.end('not found')
 })
