@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>BranchForge</title>
+<style>
+  :root{--bg:#f6f3ee;--card:#fff;--ink:#2c2a27;--mut:#9b958b;--line:#ece7dd;--acc:#df6a43;--acc2:#7c5cff;--ok:#3fae74}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,"PingFang SC",sans-serif;color:var(--ink);background:var(--bg);height:100vh;overflow:hidden}
+  .app{display:flex;height:100vh}
+  /* sidebar */
+  .side{width:248px;background:#fbf9f5;border-right:1px solid var(--line);display:flex;flex-direction:column;padding:14px}
+  .brand{font-size:15px;font-weight:700;display:flex;align-items:center;gap:7px;padding:6px 6px 14px}
+  .brand .d{color:var(--acc)}
+  .new{padding:10px 12px;border:1px solid var(--line);border-radius:11px;background:#fff;color:var(--ink);font-size:13.5px;font-weight:600;cursor:pointer;text-align:left;transition:.15s}
+  .new:hover{background:#fff;border-color:#dcd6ca;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+  .seclabel{font-size:11px;color:var(--mut);margin:16px 6px 6px;letter-spacing:.5px}
+  .slist{flex:1;overflow:auto;display:flex;flex-direction:column;gap:2px}
+  .sitem{padding:9px 10px;border-radius:9px;cursor:pointer;font-size:13px;color:#4a463f;display:flex;align-items:center;gap:8px;transition:.12s}
+  .sitem:hover{background:#f2ede4}.sitem.on{background:#f0e9dd}
+  .sitem .dot{width:6px;height:6px;border-radius:50%;background:var(--acc);flex:none}
+  .sitem .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .team{margin-top:8px;padding:10px 12px;border-radius:11px;background:#f3effb;border:1px solid #e7e0f7;color:var(--acc2);font-size:13px;font-weight:600;text-decoration:none;display:flex;align-items:center;gap:8px}
+  .team:hover{background:#ece5f9}
+  /* main */
+  .main{flex:1;display:flex;flex-direction:column;position:relative}
+  .scroll{flex:1;overflow:auto;padding:0 8%}
+  .home{max-width:760px;margin:0 auto;padding:64px 0 40px}
+  .hi{font-size:26px;font-weight:700;display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .hi .s{color:var(--acc);font-size:22px}
+  .sub{color:var(--mut);font-size:14px;margin-bottom:28px}
+  .dash{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 4px 20px rgba(60,42,30,.04)}
+  .dtabs{display:flex;gap:14px;font-size:13px;color:var(--mut);margin-bottom:16px}
+  .dtabs b{color:var(--ink)}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
+  .tile{background:#faf8f4;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .tile .k{font-size:11.5px;color:var(--mut)}.tile .v{font-size:21px;font-weight:700;margin-top:3px}
+  .heat{display:grid;grid-template-columns:repeat(26,1fr);gap:3px}
+  .heat i{aspect-ratio:1;border-radius:3px;background:#eee7da}
+  .funline{color:var(--mut);font-size:12.5px;margin-top:14px}
+  .quick{display:flex;gap:10px;margin-top:22px}
+  .qbtn{padding:11px 16px;border-radius:12px;border:1px solid var(--line);background:#fff;font-size:13.5px;font-weight:600;cursor:pointer}
+  .qbtn.p{background:var(--acc);color:#fff;border-color:transparent}
+  /* chat */
+  .chat{max-width:760px;margin:0 auto;padding:28px 0 40px;display:flex;flex-direction:column;gap:14px}
+  .msg{max-width:84%;padding:11px 14px;border-radius:14px;font-size:14px;line-height:1.6;white-space:pre-wrap}
+  .u{align-self:flex-end;background:var(--acc);color:#fff;border-bottom-right-radius:4px}
+  .a{align-self:flex-start;background:#fff;border:1px solid var(--line);font-family:ui-monospace,Menlo,monospace;font-size:13px;border-bottom-left-radius:4px}
+  /* composer */
+  .composer{padding:14px 8% 20px;background:linear-gradient(transparent,var(--bg) 30%)}
+  .cwrap{max-width:760px;margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 6px 24px rgba(60,42,30,.06);padding:10px 12px}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#6a655c;background:#f5f1ea;border:1px solid var(--line);border-radius:999px;padding:4px 10px}
+  .chip input{border:none;background:transparent;font-size:12px;color:#6a655c;outline:none;width:150px;font-family:inherit}
+  .irow{display:flex;align-items:flex-end;gap:8px}
+  .irow textarea{flex:1;border:none;outline:none;resize:none;font-size:14px;font-family:inherit;color:var(--ink);height:24px;max-height:140px;padding:4px 2px}
+  .send{width:34px;height:34px;border-radius:10px;border:none;background:var(--acc);color:#fff;font-size:16px;cursor:pointer;flex:none}
+  .send:disabled{opacity:.4}
+  .mascot{position:fixed;right:22px;bottom:18px;font-size:30px;animation:bob 2.4s ease-in-out infinite;pointer-events:none}
+  @keyframes bob{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-6px) rotate(3deg)}}
+</style></head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="d">✳</span> BranchForge</div>
+    <button class="new" onclick="showHome()">＋ 新建会话</button>
+    <div class="seclabel">最近会话</div>
+    <div class="slist" id="slist"></div>
+    <a class="team" href="/office" target="_blank">⌗ 团队视图 · 并行 worktree</a>
+  </aside>
+  <main class="main">
+    <div class="scroll">
+      <div class="home" id="home">
+        <div class="hi"><span class="s">✳</span> 你好,接下来做点什么?</div>
+        <div class="sub">描述一个任务交给一个会话,或开个大目标让团队并行开干。</div>
+        <div class="dash">
+          <div class="dtabs"><b>概览</b><span>本地工作区</span></div>
+          <div class="tiles" id="tiles"></div>
+          <div class="heat" id="heat"></div>
+          <div class="funline" id="funline"></div>
+        </div>
+        <div class="quick">
+          <button class="qbtn p" onclick="document.getElementById('msg').focus()">＋ 开个会话</button>
+          <button class="qbtn" onclick="window.open('/office','_blank')">⌗ 团队并行(worktree)</button>
+        </div>
+      </div>
+      <div class="chat" id="chat" style="display:none"></div>
+    </div>
+    <div class="composer">
+      <div class="cwrap">
+        <div class="chips">
+          <span class="chip">📁 <input id="repo" placeholder="项目路径 / 仓库URL"/></span>
+          <span class="chip" id="branchchip">⎇ main</span>
+          <span class="chip">◍ ワークツリー</span>
+          <span class="chip">✦ Opus 4.8 · 高</span>
+        </div>
+        <div class="irow">
+          <textarea id="msg" placeholder="描述任务,或问点什么…(Enter 发送)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();onSend()}" oninput="autogrow(this)"></textarea>
+          <button class="send" id="sendb" onclick="onSend()">↑</button>
+        </div>
+      </div>
+    </div>
+  </main>
+  <div class="mascot">🦊</div>
+</div>
+<script>
+var cur=null,streaming=false;
+function autogrow(t){t.style.height='24px';t.style.height=Math.min(140,t.scrollHeight)+'px'}
+function api(p){return fetch(p).then(function(r){return r.json()})}
+function loadSessions(){api('/sessions').then(function(list){
+  var el=document.getElementById('slist');el.innerHTML='';
+  list.slice().reverse().forEach(function(s){
+    var d=document.createElement('div');d.className='sitem'+(cur===s.id?' on':'');
+    d.innerHTML='<span class="dot"></span><span class="t">'+s.title+'</span>';
+    d.onclick=function(){selectSession(s)};el.appendChild(d);
+  });
+  renderStats(list);
+})}
+function renderStats(list){
+  var sessions=list.length,turns=0,cost=0;
+  list.forEach(function(s){turns+=s.turns||0;cost+=s.cost||0});
+  var tiles=[['会话',sessions],['消息',turns],['累计成本','$'+cost.toFixed(2)],['分支',sessions]];
+  document.getElementById('tiles').innerHTML=tiles.map(function(t){return '<div class="tile"><div class="k">'+t[0]+'</div><div class="v">'+t[1]+'</div></div>'}).join('');
+  var heat='';for(var i=0;i<26*5;i++){var lv=(i*7+turns*3)%11;var a=lv>8?0.9:lv>5?0.55:lv>2?0.28:0.08;heat+='<i style="background:rgba(223,106,67,'+a+')"></i>'}
+  document.getElementById('heat').innerHTML=heat;
+  document.getElementById('funline').textContent='你已经和 AI 协作了 '+turns+' 轮,在 '+sessions+' 个隔离分支里干活 —— 对外只是一个开发者。';
+}
+function showHome(){cur=null;document.getElementById('home').style.display='';document.getElementById('chat').style.display='none';loadSessions()}
+function selectSession(s){
+  cur=s.id;document.getElementById('home').style.display='none';
+  var c=document.getElementById('chat');c.style.display='';c.innerHTML='';
+  document.getElementById('branchchip').textContent='⎇ '+s.branch;
+  loadSessions();
+  api('/session/history?id='+s.id).then(function(h){h.forEach(function(m){addMsg(m.role,m.text)})});
+}
+function addMsg(role,text){var c=document.getElementById('chat');var d=document.createElement('div');d.className='msg '+(role==='user'?'u':'a');d.textContent=text;c.appendChild(d);d.scrollIntoView();return d}
+function onSend(){
+  if(streaming)return;var ta=document.getElementById('msg');var msg=ta.value.trim();if(!msg)return;
+  if(!cur){
+    var repo=document.getElementById('repo').value;if(!repo){document.getElementById('repo').focus();return}
+    fetch('/session/new?repo='+encodeURIComponent(repo)+'&title='+encodeURIComponent(msg.slice(0,24))).then(function(r){return r.json()}).then(function(s){
+      if(s.error){alert(s.error||'建会话失败');return}
+      cur=s.id;document.getElementById('home').style.display='none';document.getElementById('chat').style.display='';document.getElementById('chat').innerHTML='';
+      document.getElementById('branchchip').textContent='⎇ '+s.branch;loadSessions();stream(msg)
+    });
+  } else stream(msg);
+  ta.value='';autogrow(ta);
+}
+function stream(msg){
+  addMsg('user',msg);streaming=true;document.getElementById('sendb').disabled=true;
+  var bubble=addMsg('assistant','');var acc='';
+  var es=new EventSource('/chat?session='+cur+'&msg='+encodeURIComponent(msg));
+  es.onmessage=function(ev){var e=JSON.parse(ev.data);
+    if(e.type==='chunk'){acc+=e.text;bubble.textContent=acc}
+    else if(e.type==='tool'){acc+='\\n[tool] '+e.name+'\\n';bubble.textContent=acc}
+    else if(e.type==='done'){es.close();streaming=false;document.getElementById('sendb').disabled=false;loadSessions()}
+    bubble.scrollIntoView();
+  };
+  es.onerror=function(){es.close();streaming=false;document.getElementById('sendb').disabled=false};
+}
+loadSessions();
+</script>
+</body></html>

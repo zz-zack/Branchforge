@@ -263,7 +263,11 @@ loadSessions();
 
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://localhost')
-  if (u.pathname === '/') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(HTML); return }
+  if (u.pathname === '/') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    try { res.end(readFileSync(join(process.cwd(), 'home.html'))) } catch (e) { res.end(HTML) }
+    return
+  }
   if (u.pathname === '/sessions') {
     const list = Object.values(sessions).map((s) => ({ id: s.id, title: s.title, repo: s.repo, branch: s.branch, cost: s.cost, turns: s.history.length }))
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(list)); return
@@ -315,8 +319,9 @@ const server = http.createServer(async (req, res) => {
     catch (e) { emit({ type: 'error', message: String(e) }) }
     emit({ type: 'done' }); res.end(); return
   }
-  if (u.pathname === '/office' || u.pathname.startsWith('/office/')) {
-    const rel = u.pathname === '/office' ? '/index.html' : u.pathname.slice(7)
+  if (u.pathname === '/office') { res.writeHead(302, { Location: '/office/' }); res.end(); return }
+  if (u.pathname.startsWith('/office/')) {
+    const rel = u.pathname === '/office/' ? 'index.html' : u.pathname.slice(8)
     try {
       const data = readFileSync(join(OFFICE_DIR, rel))
       const ext = rel.split('.').pop()
