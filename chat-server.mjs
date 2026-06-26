@@ -63,6 +63,42 @@ function diffFiles(s) {
   try { git(s.worktree, ['add', '-A']); const st = git(s.worktree, ['diff', '--cached', '--numstat', s.base]); return st ? st.split('\n').filter(Boolean).length : 0 } catch (e) { return 0 }
 }
 
+// IDE: 文件树(限定在 worktree 内,跳过 .git/node_modules/.forge)
+function fsTree(root, dir, depth) {
+  if (depth > 7) return []
+  let ents = []
+  try { ents = readdirSync(dir, { withFileTypes: true }) } catch (e) { return [] }
+  const out = []
+  for (const e of ents) {
+    if (e.name === '.git' || e.name === 'node_modules' || e.name === '.forge') continue
+    const full = join(dir, e.name)
+    const rel = full.slice(root.length + 1)
+    if (e.isDirectory()) out.push({ name: e.name, path: rel, dir: true, children: fsTree(root, full, depth + 1) })
+    else out.push({ name: e.name, path: rel, dir: false })
+  }
+  out.sort((a, b) => (b.dir ? 1 : 0) - (a.dir ? 1 : 0) || a.name.localeCompare(b.name))
+  return out
+}
+function safeJoin(base, rel) { const full = join(base, rel); if (!full.startsWith(base)) throw new Error('bad path'); return full }
+
+// IDE: 某会话 worktree 的逐文件 diff(base vs 当前),供 Monaco diff 编辑器
+function sessionDiff(s) {
+  const out = []
+  try {
+    git(s.worktree, ['add', '-A'])
+    const stat = git(s.worktree, ['diff', '--cached', '--numstat', s.base])
+    if (!stat) return out
+    for (const line of stat.split('\n').filter(Boolean)) {
+      const file = line.split('\t').pop()
+      let base = '', work = ''
+      try { base = git(s.worktree, ['show', s.base + ':' + file]) } catch (e) {}
+      try { work = readFileSync(join(s.worktree, file), 'utf8') } catch (e) {}
+      out.push({ file, base, work })
+    }
+  } catch (e) {}
+  return out
+}
+
 async function chat(s, msg, emit) {
   s.history.push({ role: 'user', text: msg })
   const ac = new AbortController(); aborters[s.id] = ac
@@ -273,7 +309,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const data = readFileSync(join(process.cwd(), 'ui', u.pathname))
       const ext = u.pathname.split('.').pop()
-      const ct = ext === 'js' ? 'text/javascript' : ext === 'css' ? 'text/css' : 'application/octet-stream'
+      const ct = ext === 'js' ? 'text/javascript' : ext === 'css' ? 'text/css' : ext === 'ttf' ? 'font/ttf' : ext === 'woff' ? 'font/woff' : ext === 'woff2' ? 'font/woff2' : ext === 'svg' ? 'image/svg+xml' : ext === 'json' || ext === 'map' ? 'application/json' : 'application/octet-stream'
       res.writeHead(200, { 'Content-Type': ct }); res.end(data)
     } catch (e) { res.writeHead(404); res.end('not found') }
     return
@@ -290,6 +326,20 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === '/session/history') {
     const s = sessions[u.searchParams.get('id')]
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(s ? s.history : [])); return
+  }
+  if (u.pathname === '/fs/tree') {
+    const s = sessions[u.searchParams.get('id')]
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(s ? fsTree(s.worktree, s.worktree, 0) : [])); return
+  }
+  if (u.pathname === '/fs/read') {
+    const s = sessions[u.searchParams.get('id')]
+    let content = ''
+    try { content = readFileSync(safeJoin(s.worktree, u.searchParams.get('file') || ''), 'utf8') } catch (e) { content = '' }
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ content })); return
+  }
+  if (u.pathname === '/session/diff') {
+    const s = sessions[u.searchParams.get('id')]
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(s ? sessionDiff(s) : [])); return
   }
   if (u.pathname === '/session/interrupt') {
     const ac = aborters[u.searchParams.get('id')]
